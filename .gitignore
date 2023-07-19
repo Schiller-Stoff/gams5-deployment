@@ -1,0 +1,4 @@
+docker/apps/gams-api
+docker/apps/apache
+docker/apps/postgres/postgres-data
+docker/apps/nginx/nginx/error_log

@@ -1,0 +1,110 @@
+# Desc: 'Dev' docker compose file for local development of the gams-api.
+# Starts-up required external services for gams-api, needed for testing
+# and development like fedora6 and its dependent database.
+# author: Sebastian Stoff
+
+version: "3.7"
+
+networks:
+  default:
+    name: gams-api-dev
+
+services:
+  relationalDB:
+    image: postgres:15.3
+    container_name: relationalDB
+    hostname: relationalDB
+    ports:
+      - "5432" # port will be accessible by other services connected to the same network, but won't be published on the host machine.
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD_FILE=/run/secrets/postgres_pw
+      - POSTGRES_DB=gams
+      # recommended by postgres image creators see docker-hub
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    secrets:
+      - postgres_pw
+    volumes:
+      # needs additional wsl config to work if under wsl and bug occurs: https://stackoverflow.com/questions/65582382/wsl2-docker-linux-permission-issue-with-volumes
+      - ${PWD}/docker/apps/postgres/postgres-data:/var/lib/postgresql/data
+
+  gams-api:
+    image: zimgraz/gams-api:0.0.12
+    # optionally use locally built image
+    # image: gams-api
+    container_name: gams-api
+    # optionally directly open up gams-api (delivering web-cirilo)
+    ports:
+      # - "8085:8080"
+      # only inside container
+      - "8080"
+    depends_on:
+      - relationalDB
+    environment:
+      # sets the log file of the spring app inside the container
+      - LOG_FILE=/home/log/app.log
+      # security log level
+      - SECURITY_LOG_LEVEL=DEBUG
+      # sets log level
+      - LOG_LEVEL=TRACE
+      # Setting java tool options  https://www.baeldung.com/ops/docker-jvm-heap-size
+      - JAVA_TOOL_OPTIONS=
+          -Xms256M
+          -Xmx1g
+          -XX:MaxDirectMemorySize=512m
+    # somewhat hacky - ensures that gams-api is restarted when an error occurs
+    restart: unless-stopped
+    volumes:
+      - ${PWD}/docker/apps/gams-api/log:/home/log/
+
+  apigateway:
+    image: nginx:1.25.1
+    container_name: api-gateway
+    hostname: apigateway
+    ports:
+      - "18085:80"
+    volumes:
+      - ${PWD}/docker/apps/nginx/nginx:/etc/nginx
+
+####
+#### from here integration-api services
+
+  facetSearch:
+    container_name: facetSearch
+    hostname: facetSearch
+    image: solr:9.2.1
+    # volumes:
+    #   - ./apps/solr/solr:/var/solr
+    ports:
+      - "8983"
+      - "8983:8983"
+    command:
+      # - mkdir /var/solr
+      # - bash -c "chown -R 8983:8983 /var/solr && runuser -u solr -- solr-precreate default-core"
+      - solr-precreate
+      - gams
+
+
+  gams-integration-api:
+    container_name: gams-integration-api
+    hostname: gams-integration-api
+    image: zimgraz/gams-integration-api:0.0.1
+    # image: gams-integration-api
+    ports:
+      - "8081"
+    restart: unless-stopped
+    environment:
+      # sets the log file of the spring app inside the container
+      - LOG_FILE=/home/log/app.log
+      - LOG_LEVEL=TRACE
+      - JAVA_TOOL_OPTIONS=
+            -Xms256M
+            -Xmx1g
+            -XX:MaxDirectMemorySize=512m
+    # volumes:
+      # - ${PWD}/docker/apps/gams-integration-api/log:/home/log/
+
+
+secrets:
+  postgres_pw:
+    file: ${PWD}/docker/secrets/postgres_pw.txt
